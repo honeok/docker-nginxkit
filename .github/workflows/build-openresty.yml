@@ -1,0 +1,399 @@
+---
+name: "Build openresty"
+
+on:
+  push:
+    paths:
+      - ".github/workflows/build-openresty.yml"
+      - "openresty/edge/**"
+      - "openresty/entrypoint/**"
+      - "openresty/stable/**"
+      - "openresty/templates/**"
+      - "!openresty/**/*.md"
+  pull_request:
+    paths:
+      - ".github/workflows/build-openresty.yml"
+      - "openresty/edge/**"
+      - "openresty/entrypoint/**"
+      - "openresty/stable/**"
+      - "openresty/templates/**"
+      - "!openresty/**/*.md"
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      publish-stable:
+        description: "Publish stable image"
+        required: true
+        default: false
+        type: boolean
+      publish-edge:
+        description: "Publish edge image"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_IMAGE: ${{ secrets.DOCKER_USERNAME || github.repository_owner }}/openresty
+  WORK_DIR: openresty
+
+jobs:
+  check-stable:
+    name: "Check stable"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      latest_version: ${{ steps.vers.outputs.latest_version }}
+      should_publish: ${{ steps.policy.outputs.should_publish }}
+
+    steps:
+      - name: "Resolve upstream versions"
+        id: vers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          latest_version="$(gh api --paginate repos/openresty/openresty/tags --jq '.[].name | capture("^v(?<v>[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)$").v' | sort -V | tail -n 1)"
+          current_version="$(skopeo list-tags docker://docker.io/$REGISTRY_IMAGE 2>/dev/null | jq -r '.Tags[] | capture("^(?<v>[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)-alpine$").v' | sort -V | tail -n 1 || true)"
+          {
+            echo "latest_version=$latest_version"
+            echo "current_version=$current_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "Determine build policy"
+        id: policy
+        run: |
+          set -euxo pipefail
+
+          should_publish=false
+          if [ ${{ github.event_name }} = "push" ] && [ ${{ github.ref_name }} = ${{ github.event.repository.default_branch }} ] || [ ${{ github.event_name }} = "schedule" ]; then
+            if [ -z ${{ steps.vers.outputs.current_version }} ] || dpkg --compare-versions ${{ steps.vers.outputs.latest_version }} gt ${{ steps.vers.outputs.current_version }}; then
+              should_publish=true
+            fi
+          elif [ ${{ github.event_name }} = "workflow_dispatch" ]; then
+            should_publish=${{ inputs.publish-stable }}
+          fi
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+
+  build-stable:
+    name: "Build stable ${{ matrix.platform }}"
+    needs: [check-stable]
+    if: github.event_name != 'schedule' || needs.check-stable.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-26.04, platform: linux/amd64 }
+          - { os: ubuntu-26.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v7
+
+      - name: "Set platform pair"
+        run: |
+          PLATFORM_PAIR=$(awk -F/ '{print $1"-"$2$3}' <<< ${{ matrix.platform }})
+          echo "PLATFORM_PAIR=$PLATFORM_PAIR" >> "$GITHUB_ENV"
+
+      - name: "Resolve build dependency versions"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: . $GITHUB_WORKSPACE/scripts/ci-deps.sh
+
+      - name: "Prepare build context"
+        working-directory: ${{ env.WORK_DIR }}/stable
+        run: |
+          set -euxo pipefail
+          cp ../entrypoint/* .
+          cp ../templates/* .
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        if: needs.check-stable.outputs.should_publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine
+            type=raw,value=${{ needs.check-stable.outputs.latest_version }}-alpine
+          labels: |
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.description=High Performance Web Platform Based on Nginx and LuaJIT.
+            org.opencontainers.image.licenses=BSD-2-Clause
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.title=openresty
+            org.opencontainers.image.url=https://openresty.org
+            org.opencontainers.image.version=${{ needs.check-stable.outputs.latest_version }}
+
+      - name: "Build and export"
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            RESTY_VERSION=${{ needs.check-stable.outputs.latest_version }}
+            NGX_ACME_VERSION=${{ env.NGX_ACME_VERSION }}
+            NGX_GEOIP2_VERSION=${{ env.NGX_GEOIP2_VERSION }}
+            NGX_ZSTD_VERSION=${{ env.NGX_ZSTD_VERSION }}
+            RESTY_STRIP_BINARIES=1
+          context: ${{ env.WORK_DIR }}/stable
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ needs.check-stable.outputs.should_publish }}
+          platforms: ${{ matrix.platform }}
+
+      - name: "Export digest"
+        if: needs.check-stable.outputs.should_publish == 'true'
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest=${{ steps.build.outputs.digest }}
+          touch ${{ runner.temp }}/digests/${digest#sha256:}
+
+      - name: "Upload digest"
+        if: needs.check-stable.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: stable-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-stable:
+    name: "Merge stable manifests"
+    needs: [check-stable, build-stable]
+    if: needs.check-stable.outputs.should_publish == 'true' && needs.build-stable.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+
+    steps:
+      - name: "Download digests"
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: stable-*
+          merge-multiple: true
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine
+            type=raw,value=${{ needs.check-stable.outputs.latest_version }}-alpine
+
+      - name: "Create manifest list and push"
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: "Inspect image"
+        run: docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ needs.check-stable.outputs.latest_version }}-alpine
+
+  check-edge:
+    name: "Check edge"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      latest_version: ${{ steps.vers.outputs.latest_version }}
+      should_publish: ${{ steps.policy.outputs.should_publish }}
+
+    steps:
+      - name: "Resolve upstream versions"
+        id: vers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          latest_version="$(gh api --paginate repos/teddysun/openresty/tags --jq '.[].name | capture("^v(?<v>[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)$").v' | sort -V | tail -n 1)"
+          current_version="$(skopeo list-tags "docker://docker.io/$REGISTRY_IMAGE" 2>/dev/null | jq -r '.Tags[] |
+            select(endswith("-edge") and (contains("fat") | not)) | capture("^(?<v>[0-9]+(\\.[0-9]+){3})").v' | sort -Vu | tail -n 1 || true)"
+          {
+            echo "latest_version=$latest_version"
+            echo "current_version=$current_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "Determine build policy"
+        id: policy
+        run: |
+          set -euxo pipefail
+
+          should_publish=false
+          if [ ${{ github.event_name }} = "push" ] && [ ${{ github.ref_name }} = ${{ github.event.repository.default_branch }} ] || [ ${{ github.event_name }} = "schedule" ]; then
+            if [ -z ${{ steps.vers.outputs.current_version }} ] || dpkg --compare-versions ${{ steps.vers.outputs.latest_version }} gt ${{ steps.vers.outputs.current_version }}; then
+              should_publish=true
+            fi
+          elif [ ${{ github.event_name }} = "workflow_dispatch" ]; then
+            should_publish=${{ inputs.publish-edge }}
+          fi
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+
+  build-edge:
+    name: "Build edge ${{ matrix.platform }}"
+    needs: [check-edge]
+    if: github.event_name != 'schedule' || needs.check-edge.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-26.04, platform: linux/amd64 }
+          - { os: ubuntu-26.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v7
+
+      - name: "Set platform pair"
+        run: |
+          PLATFORM_PAIR=$(awk -F/ '{print $1"-"$2$3}' <<< ${{ matrix.platform }})
+          echo "PLATFORM_PAIR=$PLATFORM_PAIR" >> "$GITHUB_ENV"
+
+      - name: "Resolve build dependency versions"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: . $GITHUB_WORKSPACE/scripts/ci-deps.sh
+
+      - name: "Prepare build context"
+        working-directory: ${{ env.WORK_DIR }}/edge
+        run: |
+          set -euxo pipefail
+          cp ../entrypoint/* .
+          cp ../templates/* .
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        if: needs.check-edge.outputs.should_publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine
+            type=raw,value=${{ needs.check-edge.outputs.latest_version }}-alpine
+          labels: |
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.description=High Performance Web Platform Based on Nginx and LuaJIT.
+            org.opencontainers.image.licenses=BSD-2-Clause
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.title=openresty
+            org.opencontainers.image.url=https://teddysun.com
+            org.opencontainers.image.version=${{ needs.check-edge.outputs.latest_version }}
+
+      - name: "Build and export"
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            RESTY_VERSION=${{ needs.check-edge.outputs.latest_version }}
+            NGX_ACME_VERSION=${{ env.NGX_ACME_VERSION }}
+            NGX_GEOIP2_VERSION=${{ env.NGX_GEOIP2_VERSION }}
+            NGX_ZSTD_VERSION=${{ env.NGX_ZSTD_VERSION }}
+            RESTY_STRIP_BINARIES=1
+          context: ${{ env.WORK_DIR }}/edge
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ needs.check-edge.outputs.should_publish }}
+          platforms: ${{ matrix.platform }}
+
+      - name: "Export digest"
+        if: needs.check-edge.outputs.should_publish == 'true'
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest=${{ steps.build.outputs.digest }}
+          touch ${{ runner.temp }}/digests/${digest#sha256:}
+
+      - name: "Upload digest"
+        if: needs.check-edge.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: edge-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-edge:
+    name: "Merge edge manifests"
+    needs: [check-edge, build-edge]
+    if: needs.check-edge.outputs.should_publish == 'true' && needs.build-edge.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+
+    steps:
+      - name: "Download digests"
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: edge-*
+          merge-multiple: true
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine-edge
+            type=raw,value=${{ needs.check-edge.outputs.latest_version }}-alpine-edge
+
+      - name: "Create manifest list and push"
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: "Inspect image"
+        run: docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ needs.check-edge.outputs.latest_version }}-alpine-edge

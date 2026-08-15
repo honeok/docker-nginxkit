@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Copyright (c) 2011-2026 Nginx, Inc.
+# Copyright (c) 2025-2026 honeok <i@honeok.com>
+#
+# Based on the NGINX Docker entrypoint script, modified for Angie.
+
+set -eu
+
+LC_ALL=C
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[ "${ANGIE_ENTRYPOINT_LOCAL_RESOLVERS:-}" ] || return 0
+
+ANGIE_LOCAL_RESOLVERS="$(awk 'BEGIN{ORS=" "} $1=="nameserver" {if ($2 ~ ":") {print "["$2"]"} else {print $2}}' /etc/resolv.conf)"
+
+ANGIE_LOCAL_RESOLVERS="${ANGIE_LOCAL_RESOLVERS% }"
+
+export ANGIE_LOCAL_RESOLVERS

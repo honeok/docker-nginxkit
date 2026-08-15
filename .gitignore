@@ -1,0 +1,7 @@
+.agents
+.codex
+.idea
+.vscode
+
+# Related to build logs and build scripts.
+build.*

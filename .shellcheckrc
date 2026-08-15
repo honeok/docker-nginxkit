@@ -1,0 +1,4 @@
+# https://github.com/koalaman/shellcheck/wiki
+
+# Allow following sourced files that are not specified in the command
+external-sources=true

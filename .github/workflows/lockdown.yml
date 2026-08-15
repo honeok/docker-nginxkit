@@ -1,0 +1,27 @@
+---
+name: "Repo lockdown"
+
+on:
+  pull_request_target:
+    types: opened
+
+permissions:
+  contents: read
+
+jobs:
+  lockdown:
+    name: "Repo lockdown"
+    if: github.base_ref == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: "Block pull request"
+        uses: dessant/repo-lockdown@v5
+        with:
+          pr-comment: |
+            Pull requests targeting the default branch are not accepted.
+            Please submit your pull request to the appropriate development branch.
+          close-pr: true
+          lock-pr: true

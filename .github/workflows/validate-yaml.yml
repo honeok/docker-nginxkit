@@ -1,0 +1,33 @@
+---
+name: "Validate yaml"
+
+on:
+  push:
+    paths:
+      - "**/*.ya?ml"
+  pull_request:
+    paths:
+      - "**/*.ya?ml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: "Validate yaml"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v7
+
+      - name: "Validate yaml"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          find . -type f \( -name "*.yml" -o -name "*.yaml" \) -print0 |
+            while IFS= read -r -d '' y; do
+              yq '.' "$y" > /dev/null
+            done

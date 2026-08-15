@@ -1,0 +1,20 @@
+---
+name: "Run shellcheck"
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["**/*.sh"]
+  pull_request:
+    paths: ["**/*.sh"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: "Run shellcheck"
+    uses: honeokX/ci/.github/workflows/shellcheck.yml@master
+    with:
+      sh_checker_only_diff: ${{ github.event_name == 'pull_request' }}

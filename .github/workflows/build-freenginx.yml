@@ -1,0 +1,215 @@
+---
+name: "Build freenginx"
+
+on:
+  push:
+    paths:
+      - ".github/workflows/build-freenginx.yml"
+      - "freenginx/**"
+      - "nginx/entrypoint/**"
+      - "!freenginx/**/*.md"
+  pull_request:
+    paths:
+      - ".github/workflows/build-freenginx.yml"
+      - "freenginx/**"
+      - "nginx/entrypoint/**"
+      - "!freenginx/**/*.md"
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish image"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_IMAGE: ${{ secrets.DOCKER_USERNAME || github.repository_owner }}/freenginx
+  WORK_DIR: freenginx
+
+jobs:
+  check:
+    name: "Check"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      latest_version: ${{ steps.vers.outputs.latest_version }}
+      should_publish: ${{ steps.policy.outputs.should_publish }}
+
+    steps:
+      - name: "Resolve upstream versions"
+        id: vers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          latest_version="$(gh api --paginate repos/freenginx/nginx/tags \
+            --jq '.[] | select(.name | test("^release-[0-9]+\\.[0-9]+\\.[0-9]+$")) | .name | sub("^release-"; "")' | sort -V | tail -n 1)"
+          current_ver="$(skopeo list-tags docker://docker.io/$REGISTRY_IMAGE 2>/dev/null | jq -r '.Tags[]' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+' | sort -uV | tail -n 1 || true)"
+          {
+            echo "latest_version=$latest_version"
+            echo "current_version=$current_ver"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "Determine build policy"
+        id: policy
+        run: |
+          set -euxo pipefail
+
+          should_publish=false
+          if [ ${{ github.event_name }} = "push" ] && [ ${{ github.ref_name }} = ${{ github.event.repository.default_branch }} ] || [ ${{ github.event_name }} = "schedule" ]; then
+            if [ -z ${{ steps.vers.outputs.current_version }} ] || dpkg --compare-versions ${{ steps.vers.outputs.latest_version }} gt ${{ steps.vers.outputs.current_version }}; then
+              should_publish=true
+            fi
+          elif [ ${{ github.event_name }} = "workflow_dispatch" ]; then
+            should_publish=${{ inputs.publish }}
+          fi
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: "Build freenginx ${{ matrix.platform }}"
+    needs: [check]
+    if: github.event_name != 'schedule' || needs.check.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-26.04, platform: linux/amd64 }
+          - { os: ubuntu-26.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v7
+
+      - name: "Set platform pair"
+        run: |
+          PLATFORM_PAIR=$(awk -F/ '{print $1"-"$2$3}' <<< ${{ matrix.platform }})
+          echo "PLATFORM_PAIR=$PLATFORM_PAIR" >> "$GITHUB_ENV"
+
+      - name: "Resolve build dependency versions"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: . scripts/ci-deps.sh
+
+      - name: "Prepare build context"
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          set -euxo pipefail
+
+          curl -fsSL -O https://github.com/nginx/pkg-oss/raw/master/alpine/alpine/nginx.conf
+          curl -fsSL -O https://github.com/nginx/pkg-oss/raw/master/alpine/alpine/nginx.default.conf
+          cp ../nginx/entrypoint/* .
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        if: needs.check.outputs.should_publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine
+            type=raw,value=${{ needs.check.outputs.latest_version }}-alpine
+          labels: |
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.description=freenginx is an HTTP web server, reverse proxy, content cache, load balancer, TCP/UDP proxy server, and mail proxy server.
+            org.opencontainers.image.licenses=BSD-2-Clause
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.title=freenginx
+            org.opencontainers.image.url=https://freenginx.org
+            org.opencontainers.image.version=${{ needs.check.outputs.latest_version }}
+
+      - name: "Build and export"
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            NGINX_VERSION=${{ needs.check.outputs.latest_version }}
+            HEADERS_MORE_VERSION=${{ env.HEADERS_MORE_VERSION }}
+            NGX_ZSTD_VERSION=${{ env.NGX_ZSTD_VERSION }}
+            NGX_STRIP_BINARIES=1
+          context: ${{ env.WORK_DIR }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ needs.check.outputs.should_publish }}
+          platforms: ${{ matrix.platform }}
+
+      - name: "Export digest"
+        if: needs.check.outputs.should_publish == 'true'
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest=${{ steps.build.outputs.digest }}
+          touch ${{ runner.temp }}/digests/${digest#sha256:}
+
+      - name: "Upload digest"
+        if: needs.check.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: "Merge manifests"
+    needs: [check, build]
+    if: needs.check.outputs.should_publish == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+
+    steps:
+      - name: "Download digests"
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: "Setup docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "Login to dockerhub"
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: "Extract docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=alpine
+            type=raw,value=${{ needs.check.outputs.latest_version }}-alpine
+
+      - name: "Create manifest list and push"
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: "Inspect image"
+        run: docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ needs.check.outputs.latest_version }}-alpine

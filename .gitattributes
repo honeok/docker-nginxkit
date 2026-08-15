@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# classify config files as nginx.
+angie/**/*.conf linguist-language=Nginx
+openresty/**/*.conf linguist-language=Nginx
