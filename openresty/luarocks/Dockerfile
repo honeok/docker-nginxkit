@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2025-2026 honeok <i@honeok.com>
 
-FROM honeok/openresty:1.31.1.1-alpine@sha256:24a0b09f0eb9d1f53181253402594046737a561046e70699c7669a440fd24355 AS dist
+FROM honeok/openresty:1.31.1.1-alpine@sha256:14cc95626e4b7b98a6adef19fc46eaae3889ab1f1a403b832edf86c774e8300c AS dist
 
 ARG RESTY_LUAROCKS_VERSION=3.13.0
 
