@@ -19,13 +19,16 @@ ENV ANGIE_VERSION=$ANGIE_VERSION
 # https://cn.angie.software/angie/docs/installation/external-modules
 
 # https://github.com/leev/ngx_http_geoip2_module
-ARG NGX_GEOIP2_VERSION=
+ARG NGX_GEOIP2_MODULE=
 
 # https://github.com/openresty/headers-more-nginx-module
-ARG HEADERS_MORE_VERSION=
+ARG RESTY_HEADERS_MORE_MODULE=
 
 # https://github.com/facebook/zstd
-ARG NGX_ZSTD_VERSION=
+ARG ZSTD_VERSION=
+
+# https://github.com/GetPageSpeed/zstd-nginx-module
+ARG NGX_ZSTD_MODULE=
 
 ## Build arguments.
 # https://github.com/webserver-llc/angie/blob/master/auto/options
@@ -82,10 +85,10 @@ ARG ANGIE_CONFIGURE_OPTIONS="\
     "
 
 ARG ANGIE_ADD_MODULE_OPTIONS="\
-    --add-module=../ngx_brotli \
-    --add-module=../ngx_http_geoip2_module-$NGX_GEOIP2_VERSION \
-    --add-module=../headers-more-nginx-module-$HEADERS_MORE_VERSION \
-    --add-module=../zstd-nginx-module \
+    --add-module=../ngx-brotli-module \
+    --add-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
+    --add-module=../headers-more-nginx-module-$RESTY_HEADERS_MORE_MODULE \
+    --add-module=../zstd-nginx-module-$NGX_ZSTD_MODULE \
     "
 
 ARG ANGIE_TOOLCHAIN_OPTIONS="\
@@ -114,27 +117,24 @@ RUN set -ex \
     && cd /tmp \
 ##############################
 # Install third-party modules.
-    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli \
-# Fix https://github.com/google/ngx_brotli/issues/97
-    && curl -fsSL https://salsa.debian.org/nginx-team/libnginx-mod-http-brotli/raw/debian/latest/debian/patches/0001-Fix-Vary-header.patch | patch -d ngx_brotli -p1 \
+    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
     && cmake \
-        -S ngx_brotli/deps/brotli \
-        -B ngx_brotli/deps/brotli/out \
+        -S ngx-brotli-module/deps/brotli \
+        -B ngx-brotli-module/deps/brotli/out \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
     && cmake \
-        --build ngx_brotli/deps/brotli/out \
+        --build ngx-brotli-module/deps/brotli/out \
         --target brotlienc \
         --parallel $(getconf _NPROCESSORS_ONLN) \
-    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_VERSION.tar.gz | tar fxz - \
-    && curl -fsSL https://github.com/openresty/headers-more-nginx-module/archive/v$HEADERS_MORE_VERSION.tar.gz | tar fxz - \
-# https://github.com/facebook/zstd/blob/dev/lib/libzstd.mk
-    && curl -fsSL https://github.com/facebook/zstd/releases/download/v$NGX_ZSTD_VERSION/zstd-$NGX_ZSTD_VERSION.tar.gz | tar fxz - \
-    && make -j$(getconf _NPROCESSORS_ONLN) -C zstd-$NGX_ZSTD_VERSION/lib \
+    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_MODULE.tar.gz | tar fxz - \
+    && curl -fsSL https://github.com/openresty/headers-more-nginx-module/archive/v$RESTY_HEADERS_MORE_MODULE.tar.gz | tar fxz - \
+    && curl -fsSL https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz | tar fxz - \
+    && make -j$(getconf _NPROCESSORS_ONLN) -C zstd-$ZSTD_VERSION/lib \
         MOREFLAGS="-fPIC" libzstd.a \
-    && export ZSTD_INC="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
-    && export ZSTD_LIB="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
-    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module \
+    && export ZSTD_INC="/tmp/zstd-$ZSTD_VERSION/lib" \
+    && export ZSTD_LIB="/tmp/zstd-$ZSTD_VERSION/lib" \
+    && curl -fsSL https://github.com/GetPageSpeed/zstd-nginx-module/archive/$NGX_ZSTD_MODULE.tar.gz | tar fxz - \
 ##############################
 # Build angie.
     && curl -fsSL https://github.com/webserver-llc/angie/archive/Angie-$ANGIE_VERSION.tar.gz | tar xz --strip-components=1 --one-top-level="angie-$ANGIE_VERSION" \
