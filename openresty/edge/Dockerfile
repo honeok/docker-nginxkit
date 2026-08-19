@@ -33,21 +33,24 @@ ARG RESTY_PCRE_CONFIGURE_OPTIONS="\
 
 ## third-party modules.
 # https://github.com/nginx/nginx-acme
-ARG NGX_ACME_VERSION=
+ARG NGX_ACME_MODULE=
 
 # https://github.com/leev/ngx_http_geoip2_module
-ARG NGX_GEOIP2_VERSION=
+ARG NGX_GEOIP2_MODULE=
 
 # https://github.com/facebook/zstd
-ARG NGX_ZSTD_VERSION=
+ARG ZSTD_VERSION=
+
+# https://github.com/GetPageSpeed/zstd-nginx-module
+ARG NGX_ZSTD_MODULE=
 
 ARG RESTY_ADD_DYNAMIC_MODULE_OPTIONS="\
     --with-http_ssl_module \
     --with-stream \
-    --add-dynamic-module=../ngx_brotli \
-    --add-dynamic-module=../ngx_http_geoip2_module-$NGX_GEOIP2_VERSION \
-    --add-dynamic-module=../nginx-acme-$NGX_ACME_VERSION \
-    --add-dynamic-module=../zstd-nginx-module \
+    --add-dynamic-module=../ngx-brotli-module \
+    --add-dynamic-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
+    --add-dynamic-module=../nginx-acme-$NGX_ACME_MODULE \
+    --add-dynamic-module=../zstd-nginx-module-$NGX_ZSTD_MODULE \
     --with-compat \
     "
 
@@ -122,22 +125,20 @@ RUN set -ex \
 ##############################
 # Install third-party modules.
     && cd /tmp \
-    && curl -fsSL https://github.com/nginx/nginx-acme/releases/download/v$NGX_ACME_VERSION/nginx-acme-$NGX_ACME_VERSION.tar.gz | tar fxz - \
-    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli \
-# Fix https://github.com/google/ngx_brotli/issues/97
-    && curl -fsSL https://salsa.debian.org/nginx-team/libnginx-mod-http-brotli/raw/debian/latest/debian/patches/0001-Fix-Vary-header.patch | patch -d ngx_brotli -p1 \
+    && curl -fsSL https://github.com/nginx/nginx-acme/releases/download/v$NGX_ACME_MODULE/nginx-acme-$NGX_ACME_MODULE.tar.gz | tar fxz - \
+    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
     && cmake \
-        -S ngx_brotli/deps/brotli \
-        -B ngx_brotli/deps/brotli/out \
+        -S ngx-brotli-module/deps/brotli \
+        -B ngx-brotli-module/deps/brotli/out \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
     && cmake \
-        --build ngx_brotli/deps/brotli/out \
+        --build ngx-brotli-module/deps/brotli/out \
         --target brotlienc \
         --parallel $(getconf _NPROCESSORS_ONLN) \
-    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_VERSION.tar.gz | tar fxz - \
-    && curl -fsSL https://github.com/facebook/zstd/releases/download/v$NGX_ZSTD_VERSION/zstd-$NGX_ZSTD_VERSION.tar.gz | tar fxz - \
-    && cd zstd-$NGX_ZSTD_VERSION \
+    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_MODULE.tar.gz | tar fxz - \
+    && curl -fsSL https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz | tar fxz - \
+    && cd zstd-$ZSTD_VERSION \
     && make clean \
     && CPPFLAGS="-I/usr/local/openresty/zlib/include" \
         CFLAGS="-fPIC" \
@@ -145,7 +146,7 @@ RUN set -ex \
         make -j$(getconf _NPROCESSORS_ONLN) \
     && make install \
     && cd /tmp \
-    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module \
+    && curl -fsSL https://github.com/GetPageSpeed/zstd-nginx-module/archive/$NGX_ZSTD_MODULE.tar.gz | tar fxz - \
 ##############################
 # Build modules.
     && cd /tmp \
