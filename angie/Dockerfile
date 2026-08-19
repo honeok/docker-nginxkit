@@ -98,8 +98,8 @@ RUN set -ex \
     && addgroup -g 101 -S angie \
     && adduser -S -D -H -u 101 -h /var/cache/angie -s /sbin/nologin -G angie -g angie angie \
     && apk add --no-cache --virtual .build-deps \
-        brotli-dev \
         build-base \
+        cmake \
         git \
         libmaxminddb-dev \
         linux-headers \
@@ -115,6 +115,17 @@ RUN set -ex \
 ##############################
 # Install third-party modules.
     && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli \
+# Fix https://github.com/google/ngx_brotli/issues/97
+    && curl -fsSL https://salsa.debian.org/nginx-team/libnginx-mod-http-brotli/raw/debian/latest/debian/patches/0001-Fix-Vary-header.patch | patch -d ngx_brotli -p1 \
+    && cmake \
+        -S ngx_brotli/deps/brotli \
+        -B ngx_brotli/deps/brotli/out \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+    && cmake \
+        --build ngx_brotli/deps/brotli/out \
+        --target brotlienc \
+        --parallel $(getconf _NPROCESSORS_ONLN) \
     && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_VERSION.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/openresty/headers-more-nginx-module/archive/v$HEADERS_MORE_VERSION.tar.gz | tar fxz - \
 # https://github.com/facebook/zstd/blob/dev/lib/libzstd.mk
@@ -123,7 +134,7 @@ RUN set -ex \
         MOREFLAGS="-fPIC" libzstd.a \
     && export ZSTD_INC="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
     && export ZSTD_LIB="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
-    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module.git \
+    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module \
 ##############################
 # Build angie.
     && curl -fsSL https://github.com/webserver-llc/angie/archive/Angie-$ANGIE_VERSION.tar.gz | tar xz --strip-components=1 --one-top-level="angie-$ANGIE_VERSION" \

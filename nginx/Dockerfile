@@ -132,8 +132,8 @@ RUN set -ex \
     && addgroup -g 101 -S nginx \
     && adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx \
     && apk add --no-cache --virtual .build-deps \
-        brotli-dev \
         build-base \
+        cmake \
         git \
         libmaxminddb-dev \
         linux-headers \
@@ -149,6 +149,17 @@ RUN set -ex \
 ##############################
 # Install third-party modules.
     && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli \
+# Fix https://github.com/google/ngx_brotli/issues/97
+    && curl -fsSL https://salsa.debian.org/nginx-team/libnginx-mod-http-brotli/raw/debian/latest/debian/patches/0001-Fix-Vary-header.patch | patch -d ngx_brotli -p1 \
+    && cmake \
+        -S ngx_brotli/deps/brotli \
+        -B ngx_brotli/deps/brotli/out \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+    && cmake \
+        --build ngx_brotli/deps/brotli/out \
+        --target brotlienc \
+        --parallel $(getconf _NPROCESSORS_ONLN) \
     && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_VERSION.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/openresty/headers-more-nginx-module/archive/v$HEADERS_MORE_VERSION.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/facebook/zstd/releases/download/v$NGX_ZSTD_VERSION/zstd-$NGX_ZSTD_VERSION.tar.gz | tar fxz - \
@@ -156,7 +167,7 @@ RUN set -ex \
         MOREFLAGS="-fPIC" libzstd.a \
     && export ZSTD_INC="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
     && export ZSTD_LIB="/tmp/zstd-$NGX_ZSTD_VERSION/lib" \
-    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module.git \
+    && git clone --depth=10 https://github.com/tokers/zstd-nginx-module \
 ##############################
 # Build nginx.
     && curl -fsSL https://github.com/nginx/nginx/releases/download/release-$NGINX_VERSION/nginx-$NGINX_VERSION.tar.gz | tar fxz - \
