@@ -108,7 +108,7 @@ jobs:
       - name: "Resolve build dependency versions"
         env:
           GH_TOKEN: ${{ github.token }}
-        run: . $GITHUB_WORKSPACE/scripts/ci-deps.sh
+        run: . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
 
       - name: "Prepare build context"
         working-directory: ${{ env.WORK_DIR }}/stable
@@ -152,9 +152,10 @@ jobs:
         with:
           build-args: |
             RESTY_VERSION=${{ needs.check-stable.outputs.latest_version }}
-            NGX_ACME_VERSION=${{ env.NGX_ACME_VERSION }}
-            NGX_GEOIP2_VERSION=${{ env.NGX_GEOIP2_VERSION }}
-            NGX_ZSTD_VERSION=${{ env.NGX_ZSTD_VERSION }}
+            NGX_ACME_MODULE=${{ env.NGX_ACME_MODULE }}
+            NGX_GEOIP2_MODULE=${{ env.NGX_GEOIP2_MODULE }}
+            ZSTD_VERSION=${{ env.ZSTD_VERSION }}
+            NGX_ZSTD_MODULE=${{ env.NGX_ZSTD_MODULE }}
             RESTY_STRIP_BINARIES=1
           context: ${{ env.WORK_DIR }}/stable
           labels: ${{ steps.meta.outputs.labels }}
@@ -285,7 +286,7 @@ jobs:
       - name: "Resolve build dependency versions"
         env:
           GH_TOKEN: ${{ github.token }}
-        run: . $GITHUB_WORKSPACE/scripts/ci-deps.sh
+        run: . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
 
       - name: "Prepare build context"
         working-directory: ${{ env.WORK_DIR }}/edge
@@ -329,9 +330,10 @@ jobs:
         with:
           build-args: |
             RESTY_VERSION=${{ needs.check-edge.outputs.latest_version }}
-            NGX_ACME_VERSION=${{ env.NGX_ACME_VERSION }}
-            NGX_GEOIP2_VERSION=${{ env.NGX_GEOIP2_VERSION }}
-            NGX_ZSTD_VERSION=${{ env.NGX_ZSTD_VERSION }}
+            NGX_ACME_MODULE=${{ env.NGX_ACME_MODULE }}
+            NGX_GEOIP2_MODULE=${{ env.NGX_GEOIP2_MODULE }}
+            ZSTD_VERSION=${{ env.ZSTD_VERSION }}
+            NGX_ZSTD_MODULE=${{ env.NGX_ZSTD_MODULE }}
             RESTY_STRIP_BINARIES=1
           context: ${{ env.WORK_DIR }}/edge
           labels: ${{ steps.meta.outputs.labels }}
