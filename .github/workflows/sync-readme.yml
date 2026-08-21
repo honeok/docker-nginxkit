@@ -1,0 +1,50 @@
+---
+name: "Sync readme"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "angie/README.md"
+      - "freenginx/README.md"
+      - "nginx/README.md"
+      - "openresty/README.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: "Sync ${{ matrix.target }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        target:
+          - angie
+          - freenginx
+          - nginx
+          - openresty
+    env:
+      REGISTRY_IMAGE: ${{ secrets.DOCKER_USERNAME || github.repository_owner }}/${{ matrix.target }}
+      WORK_DIR: ${{ matrix.target }}
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "Sync readme to dockerhub"
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ env.REGISTRY_IMAGE }}
+          readme-filepath: ${{ env.WORK_DIR }}/README.md
+          enable-url-completion: false
