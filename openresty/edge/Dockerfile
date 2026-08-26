@@ -17,7 +17,7 @@ ARG RESTY_VERSION=
 ARG RESTY_ZLIB_VERSION=1.3.2
 
 # https://github.com/openresty/openresty-packaging/blob/master/alpine/openresty-openssl3/APKBUILD
-ARG RESTY_OPENSSL_VERSION=3.5.7
+ARG RESTY_OPENSSL_VERSION=3.5.8
 ARG RESTY_OPENSSL_PATCH_VERSION=3.5.7
 ARG RESTY_OPENSSL_CONFIGURE_OPTIONS="\
     enable-camellia enable-cms enable-fips enable-ktls enable-md2 enable-rc5 enable-rfc3779 enable-seed enable-ssl3 enable-ssl3-method enable-weak-ssl-ciphers \
