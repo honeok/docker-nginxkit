@@ -7,6 +7,59 @@
 
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS base
 
+FROM base AS build
+
+## angie version.
+ARG ANGIE_VERSION=
+
+## dynamic modules.
+# https://github.com/kjdev/nginx-auth-jwt
+ARG NGX_AUTH_JWT_MODULE=
+
+# https://github.com/nginx-modules/ngx_cache_purge
+ARG NGX_CACHE_PURGE_MODULE=
+
+# https://github.com/leev/ngx_http_geoip2_module
+ARG NGX_GEOIP2_MODULE=
+
+ARG ANGIE_ADD_DYNAMIC_MODULE_OPTIONS="\
+    --with-stream \
+    --add-dynamic-module=../nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    --add-dynamic-module=../ngx_cache_purge-$NGX_CACHE_PURGE_MODULE \
+    --add-dynamic-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
+    --with-compat \
+    "
+
+ARG ANGIE_STRIP_BINARIES=
+
+RUN set -ex \
+    && apk add --no-cache --virtual .build-deps \
+        build-base \
+        curl \
+        git \
+        jansson-dev \
+        libmaxminddb-dev \
+        openssl-dev \
+        pcre2-dev \
+        tar \
+        zlib-dev \
+    && cd /tmp \
+##############################
+# install dynamic modules.
+    && git clone --depth 1 --branch $NGX_AUTH_JWT_MODULE --recurse-submodules --shallow-submodules https://github.com/kjdev/nginx-auth-jwt nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    && curl -fsSL https://github.com/nginx-modules/ngx_cache_purge/archive/$NGX_CACHE_PURGE_MODULE.tar.gz | tar fxz - \
+    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_MODULE.tar.gz | tar fxz - \
+##############################
+# build.
+    && curl -fsSL https://download.angie.software/files/angie-$ANGIE_VERSION.tar.gz | tar fxz - \
+    && cd angie-$ANGIE_VERSION \
+    && eval ./configure $ANGIE_ADD_DYNAMIC_MODULE_OPTIONS \
+    && make -j$(getconf _NPROCESSORS_ONLN) modules \
+    && if [ -n "$ANGIE_STRIP_BINARIES" ]; then \
+        strip --strip-unneeded objs/*.so || exit 1; \
+    fi \
+    && apk del --no-network .build-deps
+
 FROM base AS dist
 
 LABEL org.opencontainers.image.authors="honeok <i@honeok.com>"
@@ -17,9 +70,6 @@ ENV ANGIE_VERSION=$ANGIE_VERSION
 
 ## third-party modules.
 # https://cn.angie.software/angie/docs/installation/external-modules
-
-# https://github.com/leev/ngx_http_geoip2_module
-ARG NGX_GEOIP2_MODULE=
 
 # https://github.com/openresty/headers-more-nginx-module
 ARG RESTY_HEADERS_MORE_MODULE=
@@ -86,7 +136,6 @@ ARG ANGIE_CONFIGURE_OPTIONS="\
 
 ARG ANGIE_ADD_MODULE_OPTIONS="\
     --add-module=../ngx-brotli-module \
-    --add-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
     --add-module=../headers-more-nginx-module-$RESTY_HEADERS_MORE_MODULE \
     --add-module=../zstd-nginx-module-$NGX_ZSTD_MODULE \
     "
@@ -97,6 +146,9 @@ ARG ANGIE_TOOLCHAIN_OPTIONS="\
 
 ARG ANGIE_STRIP_BINARIES=
 
+# Copy prebuilt dynamic modules.
+COPY --from=build /tmp/angie-$ANGIE_VERSION/objs/*.so /usr/lib/angie/modules/
+
 RUN set -ex \
     && addgroup -g 101 -S angie \
     && adduser -S -D -H -u 101 -h /var/cache/angie -s /sbin/nologin -G angie -g angie angie \
@@ -104,7 +156,6 @@ RUN set -ex \
         build-base \
         cmake \
         git \
-        libmaxminddb-dev \
         linux-headers \
         openssl-dev \
         pcre2-dev \
@@ -117,7 +168,7 @@ RUN set -ex \
     && cd /tmp \
 ##############################
 # Install third-party modules.
-    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
+    && git clone --depth 1 --recurse-submodules --shallow-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
     && cmake \
         -S ngx-brotli-module/deps/brotli \
         -B ngx-brotli-module/deps/brotli/out \
@@ -127,7 +178,6 @@ RUN set -ex \
         --build ngx-brotli-module/deps/brotli/out \
         --target brotlienc \
         --parallel $(getconf _NPROCESSORS_ONLN) \
-    && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_MODULE.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/openresty/headers-more-nginx-module/archive/v$RESTY_HEADERS_MORE_MODULE.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz | tar fxz - \
     && make -j$(getconf _NPROCESSORS_ONLN) -C zstd-$ZSTD_VERSION/lib \
@@ -137,7 +187,7 @@ RUN set -ex \
     && curl -fsSL https://github.com/GetPageSpeed/zstd-nginx-module/archive/$NGX_ZSTD_MODULE.tar.gz | tar fxz - \
 ##############################
 # Build angie.
-    && curl -fsSL https://github.com/webserver-llc/angie/archive/Angie-$ANGIE_VERSION.tar.gz | tar xz --strip-components=1 --one-top-level="angie-$ANGIE_VERSION" \
+    && curl -fsSL https://download.angie.software/files/angie-$ANGIE_VERSION.tar.gz | tar fxz - \
     && cd angie-$ANGIE_VERSION \
     && eval ./configure $ANGIE_CONFIGURE_OPTIONS $ANGIE_ADD_MODULE_OPTIONS $ANGIE_TOOLCHAIN_OPTIONS \
     && make -j$(getconf _NPROCESSORS_ONLN) \
@@ -186,7 +236,7 @@ RUN set -ex \
         | sort -u \
         | sed '/^$/d; s/^/so:/' \
     )" \
-    && apk add --no-network --virtual .runDeps $runDeps \
+    && apk add --no-cache --virtual .runDeps $runDeps \
     && apk del --no-network .build-deps \
     && rm -rf /var/cache/apk/* /tmp/*
 

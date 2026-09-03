@@ -16,12 +16,27 @@ The project was conceived by ex-devs from the original **nginx** team to venture
 - Built from Angie source following the official Angie source build configuration.
 - All images are built exclusively on Alpine Linux; no other base distributions are provided.
 - Keeps the final image small by removing build dependencies and unnecessary files after compilation.
-- Includes GeoIP2 for geolocation, Brotli and Zstandard for compression, and Headers More for additional control over HTTP headers.
+- Keeps the filesystem layout and configuration paths aligned with the official Angie image.
+- Includes Brotli, Zstandard, and Headers More as built-in modules, along with other commonly used third-party functionality as dynamically loadable modules.
 
 ## Quick Start
 
 ```shell
 docker run -d --name angie -p 80:80 honeok/angie:alpine
+```
+
+### Dynamic modules
+
+Bundled dynamic modules are installed in `/usr/lib/angie/modules`, with `/etc/angie/modules` linked to the same location, following the layout of the official Angie image.
+
+To enable a bundled dynamic module, edit the Angie configuration file:
+
+```shell
+vim /etc/angie/angie.conf
+```
+
+```nginx
+load_module modules/<module>.so;
 ```
 
 For configuration details, see the official [documentation][3].
