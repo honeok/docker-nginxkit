@@ -108,7 +108,9 @@ jobs:
       - name: "Resolve build dependency versions"
         env:
           GH_TOKEN: ${{ github.token }}
-        run: . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
+        run: |
+          . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
+          . $GITHUB_WORKSPACE/scripts/ci/build-resty-deps.sh stable
 
       - name: "Prepare build context"
         working-directory: ${{ env.WORK_DIR }}/stable
@@ -137,7 +139,7 @@ jobs:
             type=raw,value=alpine
             type=raw,value=${{ needs.check-stable.outputs.latest_version }}-alpine
           labels: |
-            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]' }}
             org.opencontainers.image.description=High Performance Web Platform Based on Nginx and LuaJIT.
             org.opencontainers.image.licenses=BSD-2-Clause
             org.opencontainers.image.revision=${{ github.sha }}
@@ -152,7 +154,13 @@ jobs:
         with:
           build-args: |
             RESTY_VERSION=${{ needs.check-stable.outputs.latest_version }}
+            RESTY_ZLIB_VERSION=${{ env.RESTY_ZLIB_VERSION }}
+            RESTY_OPENSSL_VERSION=${{ env.RESTY_OPENSSL_VERSION }}
+            RESTY_OPENSSL_PATCH_VERSION=${{ env.RESTY_OPENSSL_PATCH_VERSION }}
+            RESTY_PCRE_VERSION=${{ env.RESTY_PCRE_VERSION }}
             NGX_ACME_MODULE=${{ env.NGX_ACME_MODULE }}
+            NGX_AUTH_JWT_MODULE=${{ env.NGX_AUTH_JWT_MODULE }}
+            NGX_CACHE_PURGE_MODULE=${{ env.NGX_CACHE_PURGE_MODULE }}
             NGX_GEOIP2_MODULE=${{ env.NGX_GEOIP2_MODULE }}
             ZSTD_VERSION=${{ env.ZSTD_VERSION }}
             NGX_ZSTD_MODULE=${{ env.NGX_ZSTD_MODULE }}
@@ -286,7 +294,9 @@ jobs:
       - name: "Resolve build dependency versions"
         env:
           GH_TOKEN: ${{ github.token }}
-        run: . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
+        run: |
+          . $GITHUB_WORKSPACE/scripts/ci/ci-deps.sh
+          . $GITHUB_WORKSPACE/scripts/ci/build-resty-deps.sh edge
 
       - name: "Prepare build context"
         working-directory: ${{ env.WORK_DIR }}/edge
@@ -315,7 +325,7 @@ jobs:
             type=raw,value=alpine
             type=raw,value=${{ needs.check-edge.outputs.latest_version }}-alpine
           labels: |
-            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]' }}
             org.opencontainers.image.description=High Performance Web Platform Based on Nginx and LuaJIT.
             org.opencontainers.image.licenses=BSD-2-Clause
             org.opencontainers.image.revision=${{ github.sha }}
@@ -330,7 +340,13 @@ jobs:
         with:
           build-args: |
             RESTY_VERSION=${{ needs.check-edge.outputs.latest_version }}
+            RESTY_ZLIB_VERSION=${{ env.RESTY_ZLIB_VERSION }}
+            RESTY_OPENSSL_VERSION=${{ env.RESTY_OPENSSL_VERSION }}
+            RESTY_OPENSSL_PATCH_VERSION=${{ env.RESTY_OPENSSL_PATCH_VERSION }}
+            RESTY_PCRE_VERSION=${{ env.RESTY_PCRE_VERSION }}
             NGX_ACME_MODULE=${{ env.NGX_ACME_MODULE }}
+            NGX_AUTH_JWT_MODULE=${{ env.NGX_AUTH_JWT_MODULE }}
+            NGX_CACHE_PURGE_MODULE=${{ env.NGX_CACHE_PURGE_MODULE }}
             NGX_GEOIP2_MODULE=${{ env.NGX_GEOIP2_MODULE }}
             ZSTD_VERSION=${{ env.ZSTD_VERSION }}
             NGX_ZSTD_MODULE=${{ env.NGX_ZSTD_MODULE }}

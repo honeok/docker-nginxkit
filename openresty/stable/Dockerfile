@@ -13,17 +13,17 @@ FROM base AS deps
 ARG RESTY_VERSION=
 
 # https://github.com/openresty/openresty-packaging/blob/master/alpine/openresty-zlib/APKBUILD
-ARG RESTY_ZLIB_VERSION=1.3.2
+ARG RESTY_ZLIB_VERSION=
 
 # https://github.com/openresty/openresty-packaging/blob/master/alpine/openresty-openssl3/APKBUILD
-ARG RESTY_OPENSSL_VERSION=3.5.8
-ARG RESTY_OPENSSL_PATCH_VERSION=3.5.5
+ARG RESTY_OPENSSL_VERSION=
+ARG RESTY_OPENSSL_PATCH_VERSION=
 ARG RESTY_OPENSSL_CONFIGURE_OPTIONS="\
     enable-camellia enable-cms enable-fips enable-ktls enable-md2 enable-rc5 enable-rfc3779 enable-seed enable-ssl3 enable-ssl3-method enable-weak-ssl-ciphers \
     "
 
 # https://github.com/openresty/openresty-packaging/blob/master/alpine/openresty-pcre2/APKBUILD
-ARG RESTY_PCRE_VERSION=10.47
+ARG RESTY_PCRE_VERSION=
 ARG RESTY_PCRE_CONFIGURE_OPTIONS="\
     --disable-bsr-anycrlf --disable-coverage --disable-ebcdic --disable-fuzz-support --disable-jit-sealloc --disable-never-backslash-C --disable-pcre2grep-libbz2 --disable-pcre2grep-libz \
     --disable-pcre2test-libedit --disable-rebuild-chartables --disable-silent-rules --disable-static --disable-valgrind --enable-jit --enable-newline-is-lf --enable-pcre2-8 --enable-pcre2-16 \
@@ -33,6 +33,12 @@ ARG RESTY_PCRE_CONFIGURE_OPTIONS="\
 ## third-party modules.
 # https://github.com/nginx/nginx-acme
 ARG NGX_ACME_MODULE=
+
+# https://github.com/kjdev/nginx-auth-jwt
+ARG NGX_AUTH_JWT_MODULE=
+
+# https://github.com/nginx-modules/ngx_cache_purge
+ARG NGX_CACHE_PURGE_MODULE=
 
 # https://github.com/leev/ngx_http_geoip2_module
 ARG NGX_GEOIP2_MODULE=
@@ -46,9 +52,11 @@ ARG NGX_ZSTD_MODULE=
 ARG RESTY_ADD_DYNAMIC_MODULE_OPTIONS="\
     --with-http_ssl_module \
     --with-stream \
-    --add-dynamic-module=../ngx-brotli-module \
-    --add-dynamic-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
     --add-dynamic-module=../nginx-acme-$NGX_ACME_MODULE \
+    --add-dynamic-module=../nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    --add-dynamic-module=../ngx-brotli-module \
+    --add-dynamic-module=../ngx_cache_purge-$NGX_CACHE_PURGE_MODULE \
+    --add-dynamic-module=../ngx_http_geoip2_module-$NGX_GEOIP2_MODULE \
     --add-dynamic-module=../zstd-nginx-module-$NGX_ZSTD_MODULE \
     --with-compat \
     "
@@ -76,6 +84,7 @@ RUN set -ex \
         cmake \
         curl \
         git \
+        jansson-dev \
         libmaxminddb-dev \
         linux-headers \
         lz4-dev \
@@ -85,7 +94,7 @@ RUN set -ex \
 ##############################
 # Build zlib.
     && cd /tmp \
-    && curl -fsSL https://github.com/madler/zlib/releases/download/v$RESTY_ZLIB_VERSION/zlib-$RESTY_ZLIB_VERSION.tar.gz | tar fxz - \
+    && curl -fsSL https://www.zlib.net/fossils/zlib-$RESTY_ZLIB_VERSION.tar.gz | tar fxz - \
     && cd zlib-$RESTY_ZLIB_VERSION \
     && ./configure \
         --prefix=/usr/local/openresty/zlib \
@@ -125,7 +134,8 @@ RUN set -ex \
 # Install third-party modules.
     && cd /tmp \
     && curl -fsSL https://github.com/nginx/nginx-acme/releases/download/v$NGX_ACME_MODULE/nginx-acme-$NGX_ACME_MODULE.tar.gz | tar fxz - \
-    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
+    && git clone --depth 1 --branch $NGX_AUTH_JWT_MODULE --recurse-submodules --shallow-submodules https://github.com/kjdev/nginx-auth-jwt nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    && git clone --depth 1 --recurse-submodules --shallow-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
     && cmake \
         -S ngx-brotli-module/deps/brotli \
         -B ngx-brotli-module/deps/brotli/out \
@@ -135,6 +145,7 @@ RUN set -ex \
         --build ngx-brotli-module/deps/brotli/out \
         --target brotlienc \
         --parallel $(getconf _NPROCESSORS_ONLN) \
+    && curl -fsSL https://github.com/nginx-modules/ngx_cache_purge/archive/$NGX_CACHE_PURGE_MODULE.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/leev/ngx_http_geoip2_module/archive/$NGX_GEOIP2_MODULE.tar.gz | tar fxz - \
     && curl -fsSL https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz | tar fxz - \
     && cd zstd-$ZSTD_VERSION \

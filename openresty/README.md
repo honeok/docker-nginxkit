@@ -17,9 +17,12 @@ Maintained by [honeok][3]. Source code is available at [honeok/docker-nginxkit][
 - Built from source based on the build configuration used by the official OpenResty Alpine image.
 - All images are built exclusively on Alpine Linux; no other base distributions are provided.
 - Keeps the final image small by removing build dependencies and unnecessary files after compilation.
-- Adds Brotli, Zstandard, GeoIP2, and ACME as dynamically loadable modules.
+- Includes Brotli, Zstandard, and other commonly used third-party modules as dynamically loadable modules.
 
 ## Quick Start
+
+> [!CAUTION]
+> Image tags are mutable and may be republished to incorporate upstream dependency updates—such as OpenSSL releases—that occur outside the OpenResty release cycle, ensuring version and build compatibility across the stack. 💔
 
 ### stable
 
@@ -31,31 +34,25 @@ docker run -d --name openresty -p 80:80 honeok/openresty:alpine
 
 ### edge
 
-Based on the OpenResty version maintained by [teddysun][5], with the goal of tracking the latest NGINX core.
+Built from the OpenResty sources maintained by [teddysun][5], combining the OpenResty ecosystem with the latest NGINX core.
 
 ```shell
 docker run -d --name openresty -p 80:80 honeok/openresty:alpine-edge
 ```
 
-### Dynamic module
+### Dynamic modules
 
-To enable the bundled dynamic modules, edit the OpenResty configuration file:
+To enable a bundled dynamic module, edit the OpenResty configuration file:
 
 ```shell
 vim /usr/local/openresty/nginx/conf/nginx.conf
 ```
 
 ```nginx
-load_module modules/ngx_http_acme_module.so;
-load_module modules/ngx_http_brotli_filter_module.so;
-load_module modules/ngx_http_brotli_static_module.so;
-load_module modules/ngx_http_geoip2_module.so;
-load_module modules/ngx_stream_geoip2_module.so;
-load_module modules/ngx_http_zstd_filter_module.so;
-load_module modules/ngx_http_zstd_static_module.so;
+load_module modules/<module>.so;
 ```
 
-For configuration details, see the official [documentation][6].
+Check the module files in `/usr/local/openresty/nginx/modules` and load only the ones you need. For configuration details, see the official [documentation][6].
 
 ## Acknowledgements
 
