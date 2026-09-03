@@ -14,12 +14,27 @@ nginx ("engine x") is an HTTP web server, reverse proxy, content cache, load bal
 - Built from source based on the Alpine build configuration from the official NGINX packaging sources.
 - All images are built exclusively on Alpine Linux; no other base distributions are provided.
 - Keeps the final image small by removing build dependencies and unnecessary files after compilation.
-- Includes GeoIP2 for geolocation, Brotli and Zstandard for compression, and Headers More for additional control over HTTP headers.
+- Keeps the filesystem layout and configuration paths aligned with the official NGINX Alpine image.
+- Includes Brotli, Zstandard, and Headers More as built-in modules, along with other commonly used third-party functionality as dynamically loadable modules.
 
 ## Quick Start
 
 ```shell
 docker run -d --name nginx -p 80:80 honeok/nginx:alpine
+```
+
+### Dynamic modules
+
+Bundled dynamic modules are installed in `/usr/lib/nginx/modules`, with `/etc/nginx/modules` linked to the same location, following the layout of the official NGINX Alpine image.
+
+To enable a bundled dynamic module, edit the NGINX configuration file:
+
+```shell
+vim /etc/nginx/nginx.conf
+```
+
+```nginx
+load_module modules/<module>.so;
 ```
 
 For configuration details, see the official [documentation][3].
