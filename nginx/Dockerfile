@@ -66,7 +66,7 @@ ARG ZSTD_VERSION=
 ARG NGX_ZSTD_MODULE=
 
 # https://github.com/nginx/pkg-oss/blob/master/alpine/Makefile
-# parameter order follows `./configure --help`.
+# https://nginx.org/en/docs/configure.html
 ARG NGX_CONFIGURE_OPTIONS="\
     --prefix=/etc/nginx \
     --sbin-path=/usr/sbin/nginx \
@@ -79,6 +79,7 @@ ARG NGX_CONFIGURE_OPTIONS="\
     --group=nginx \
     --without-select_module \
     --without-poll_module \
+    --with-control-api \
     --with-threads \
     --with-file-aio \
     --with-http_ssl_module \
@@ -97,6 +98,7 @@ ARG NGX_CONFIGURE_OPTIONS="\
     --with-http_secure_link_module \
     `# --with-http_degradation_module` \
     --with-http_slice_module \
+    --with-http_json_module \
     --with-http_stub_status_module \
     --http-log-path=/var/log/nginx/access.log \
     --http-client-body-temp-path=/var/cache/nginx/client_temp \
