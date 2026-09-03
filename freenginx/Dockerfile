@@ -11,6 +11,53 @@
 
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS base
 
+FROM base AS build
+
+## nginx version.
+ARG NGINX_VERSION=
+
+## dynamic modules.
+# https://github.com/kjdev/nginx-auth-jwt
+ARG NGX_AUTH_JWT_MODULE=
+
+# https://github.com/nginx-modules/ngx_cache_purge
+ARG NGX_CACHE_PURGE_MODULE=
+
+ARG NGX_ADD_DYNAMIC_MODULE_OPTIONS="\
+    --with-stream \
+    --add-dynamic-module=../nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    --add-dynamic-module=../ngx_cache_purge-$NGX_CACHE_PURGE_MODULE \
+    --with-compat \
+    "
+
+ARG NGX_STRIP_BINARIES=
+
+RUN set -ex \
+    && apk add --no-cache --virtual .build-deps \
+        build-base \
+        curl \
+        git \
+        jansson-dev \
+        openssl-dev \
+        pcre2-dev \
+        tar \
+        zlib-dev \
+    && cd /tmp \
+##############################
+# install dynamic modules.
+    && git clone --depth 1 --branch $NGX_AUTH_JWT_MODULE --recurse-submodules --shallow-submodules https://github.com/kjdev/nginx-auth-jwt nginx-auth-jwt-$NGX_AUTH_JWT_MODULE \
+    && curl -fsSL https://github.com/nginx-modules/ngx_cache_purge/archive/$NGX_CACHE_PURGE_MODULE.tar.gz | tar fxz - \
+##############################
+# build.
+    && curl -fsSL https://freenginx.org/download/freenginx-$NGINX_VERSION.tar.gz | tar fxz - \
+    && cd freenginx-$NGINX_VERSION \
+    && eval ./configure $NGX_ADD_DYNAMIC_MODULE_OPTIONS \
+    && make -j$(getconf _NPROCESSORS_ONLN) modules \
+    && if [ -n "$NGX_STRIP_BINARIES" ]; then \
+        strip --strip-unneeded objs/*.so || exit 1; \
+    fi \
+    && apk del --no-network .build-deps
+
 FROM base AS dist
 
 LABEL org.opencontainers.image.authors="honeok <i@honeok.com>"
@@ -30,7 +77,7 @@ ARG ZSTD_VERSION=
 ARG NGX_ZSTD_MODULE=
 
 # https://github.com/nginx/pkg-oss/blob/master/alpine/Makefile
-# parameter order follows `./configure --help`.
+# https://freenginx.org/en/docs/configure.html
 ARG NGX_CONFIGURE_OPTIONS="\
     --prefix=/etc/nginx \
     --sbin-path=/usr/sbin/nginx \
@@ -93,6 +140,9 @@ ARG NGX_TOOLCHAIN_OPTIONS="\
 
 ARG NGX_STRIP_BINARIES=
 
+# Copy prebuilt dynamic modules.
+COPY --from=build /tmp/freenginx-$NGINX_VERSION/objs/*.so /usr/lib/nginx/modules/
+
 RUN set -ex \
     && addgroup -g 101 -S nginx \
     && adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx \
@@ -114,7 +164,7 @@ RUN set -ex \
     && cd /tmp \
 ##############################
 # Install third-party modules.
-    && git clone --recurse-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
+    && git clone --depth 1 --recurse-submodules --shallow-submodules -j8 https://github.com/google/ngx_brotli ngx-brotli-module \
     && cmake \
         -S ngx-brotli-module/deps/brotli \
         -B ngx-brotli-module/deps/brotli/out \
@@ -179,7 +229,7 @@ RUN set -ex \
         | sort -u \
         | sed '/^$/d; s/^/so:/' \
     )" \
-    && apk add --no-network --virtual .runDeps $runDeps \
+    && apk add --no-cache --virtual .runDeps $runDeps \
     && apk del --no-network .build-deps \
     && rm -rf /var/cache/apk/* /tmp/*
 

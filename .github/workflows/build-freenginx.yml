@@ -131,7 +131,7 @@ jobs:
             type=raw,value=alpine
             type=raw,value=${{ needs.check.outputs.latest_version }}-alpine
           labels: |
-            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]' }}
             org.opencontainers.image.description=freenginx is an HTTP web server, reverse proxy, content cache, load balancer, TCP/UDP proxy server, and mail proxy server.
             org.opencontainers.image.licenses=BSD-2-Clause
             org.opencontainers.image.revision=${{ github.sha }}
@@ -146,6 +146,8 @@ jobs:
         with:
           build-args: |
             NGINX_VERSION=${{ needs.check.outputs.latest_version }}
+            NGX_AUTH_JWT_MODULE=${{ env.NGX_AUTH_JWT_MODULE }}
+            NGX_CACHE_PURGE_MODULE=${{ env.NGX_CACHE_PURGE_MODULE }}
             RESTY_HEADERS_MORE_MODULE=${{ env.RESTY_HEADERS_MORE_MODULE }}
             ZSTD_VERSION=${{ env.ZSTD_VERSION }}
             NGX_ZSTD_MODULE=${{ env.NGX_ZSTD_MODULE }}
